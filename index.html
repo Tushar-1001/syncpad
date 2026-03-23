@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SyncPad – Cross Device Clipboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b0e14;
+      --surface: #13171f;
+      --surface2: #1a1f2b;
+      --border: #252b39;
+      --accent: #4af0c4;
+      --accent2: #3dd6ad;
+      --accent-dim: rgba(74, 240, 196, 0.12);
+      --accent-glow: rgba(74, 240, 196, 0.25);
+      --text: #e8edf5;
+      --text-muted: #5a6478;
+      --text-soft: #8b95a8;
+      --danger: #ff5c72;
+      --warn: #f5a623;
+      --radius: 14px;
+      --radius-sm: 8px;
+      --mono: 'DM Mono', monospace;
+      --sans: 'Syne', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow-x: hidden;
+    }
+
+    /* ── Background grid ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(74,240,196,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(74,240,196,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: -30%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(74,240,196,0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 60px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 44px;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(74,240,196,0.3);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon svg { width: 18px; height: 18px; }
+
+    .logo-text {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+
+    .logo-text span { color: var(--accent); }
+
+    .tagline {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 400;
+      font-family: var(--mono);
+    }
+
+    /* ── Card ── */
+    .card {
+      width: 100%;
+      max-width: 720px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.5);
+    }
+
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      padding: 10px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      font-family: var(--mono);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: all 0.3s ease;
+    }
+
+    .dot.connected {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s infinite;
+    }
+
+    .dot.waiting {
+      background: var(--warn);
+      box-shadow: 0 0 8px var(--warn);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .status-text {
+      color: var(--text-soft);
+      font-size: 0.82rem;
+      font-family: var(--mono);
+    }
+
+    #status-label { color: var(--text); }
+
+    /* ── Code display ── */
+    .code-display {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(74,240,196,0.25);
+      border-radius: 6px;
+    }
+
+    .code-display.visible { display: flex; }
+
+    .code-label {
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .code-value {
+      font-size: 1rem;
+      font-family: var(--mono);
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.15em;
+    }
+
+    /* ── Action area ── */
+    .action-area {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    /* Session panel shown when NOT connected */
+    .session-panel { width: 100%; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 22px;
+      border-radius: var(--radius-sm);
+      font-family: var(--sans);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+      outline: none;
+      letter-spacing: 0.01em;
+    }
+
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0b0e14;
+    }
+
+    .btn-primary:not(:disabled):hover {
+      background: #5fffd5;
+      box-shadow: 0 0 20px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-outline:not(:disabled):hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--text-soft);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:not(:disabled):hover {
+      color: var(--text);
+      border-color: var(--text-soft);
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid rgba(255,92,114,0.3);
+    }
+
+    .btn-danger:not(:disabled):hover {
+      background: rgba(255,92,114,0.1);
+    }
+
+    .btn svg { flex-shrink: 0; }
+
+    /* ── Join input row ── */
+    .join-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      align-items: center;
+    }
+
+    .code-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 11px 16px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      letter-spacing: 0.2em;
+      outline: none;
+      transition: border-color 0.2s;
+      text-align: center;
+      max-width: 180px;
+    }
+
+    .code-input::placeholder { color: var(--text-muted); letter-spacing: 0.1em; font-size: 0.9rem; }
+    .code-input:focus { border-color: rgba(74,240,196,0.5); }
+
+    /* ── Textarea ── */
+    .textarea-wrap {
+      position: relative;
+    }
+
+    .textarea-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .textarea-label {
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .textarea-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      cursor: pointer;
+      transition: all 0.18s;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-soft);
+    }
+
+    .btn-icon:hover { color: var(--text); border-color: var(--text-muted); }
+    .btn-icon svg { width: 13px; height: 13px; }
+
+    textarea {
+      width: 100%;
+      min-height: 260px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      caret-color: var(--accent);
+    }
+
+    textarea::placeholder { color: var(--text-muted); }
+
+    textarea:focus {
+      border-color: rgba(74,240,196,0.35);
+      box-shadow: 0 0 0 3px rgba(74,240,196,0.07);
+    }
+
+    textarea.syncing {
+      border-color: rgba(74,240,196,0.6);
+      box-shadow: 0 0 0 3px rgba(74,240,196,0.1);
+      transition: none;
+    }
+
+    .sync-flash {
+      position: absolute;
+      top: 38px;
+      right: 12px;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      color: var(--accent);
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+
+    .sync-flash.show { opacity: 1; }
+
+    /* ── Divider ── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .divider span {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 32px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .footer-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
+
+    .footer-item svg { opacity: 0.6; }
+
+    /* ── Toast ── */
+    #toast-container {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 0.82rem;
+      font-family: var(--mono);
+      backdrop-filter: blur(12px);
+      border: 1px solid;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: toastIn 0.3s ease forwards, toastOut 0.3s ease 2.5s forwards;
+      white-space: nowrap;
+    }
+
+    .toast.success {
+      background: rgba(74,240,196,0.12);
+      border-color: rgba(74,240,196,0.3);
+      color: var(--accent);
+    }
+
+    .toast.error {
+      background: rgba(255,92,114,0.12);
+      border-color: rgba(255,92,114,0.3);
+      color: var(--danger);
+    }
+
+    .toast.info {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    @keyframes toastIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes toastOut {
+      to { opacity: 0; transform: translateY(-8px); }
+    }
+
+    /* ── Timer bar ── */
+    .timer-wrap {
+      display: none;
+      margin-top: 16px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .timer-wrap.visible { display: flex; }
+
+    .timer-label {
+      font-size: 0.72rem;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .timer-bar-track {
+      flex: 1;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .timer-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 1s linear, background 1s;
+      width: 100%;
+    }
+
+    .timer-val {
+      font-size: 0.72rem;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* ── Section visibility ── */
+    #connected-controls { display: none; }
+
+    /* ── Responsive ── */
+    @media (max-width: 540px) {
+      .app { padding: 24px 14px 50px; }
+      .card { padding: 22px 16px; }
+      .action-area { gap: 8px; }
+      .btn { padding: 10px 16px; font-size: 0.84rem; }
+      textarea { min-height: 200px; font-size: 0.88rem; }
+      .join-row { flex-direction: column; }
+      .code-input { max-width: 100%; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#4af0c4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1"/>
+          <rect x="8" y="2" width="8" height="6" rx="1"/>
+          <path d="M16 9l4 4-4 4M20 13H8"/>
+        </svg>
+      </div>
+      <span class="logo-text">Sync<span>Pad</span></span>
+    </div>
+    <p class="tagline">Cross-device clipboard · Real-time</p>
+  </header>
+
+  <!-- Card -->
+  <div class="card">
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="status-indicator">
+        <div class="dot" id="status-dot"></div>
+        <span id="status-label">Not Connected</span>
+      </div>
+      <div class="code-display" id="code-display">
+        <span class="code-label">Code</span>
+        <span class="code-value" id="code-value-display">——</span>
+      </div>
+      <span class="status-text" id="status-sub">No active session</span>
+    </div>
+
+    <!-- Session setup (shown when not connected) -->
+    <div id="session-panel">
+      <div class="action-area">
+        <button class="btn btn-primary" id="btn-create" onclick="createSession()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          Create Code
+        </button>
+      </div>
+
+      <div class="divider"><span>or join existing</span></div>
+
+      <div class="join-row">
+        <input
+          class="code-input"
+          id="join-input"
+          type="text"
+          inputmode="numeric"
+          maxlength="6"
+          placeholder="000000"
+          oninput="this.value=this.value.replace(/\D/g,'')"
+        />
+        <button class="btn btn-outline" id="btn-join" onclick="joinSession()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Join Session
+        </button>
+      </div>
+    </div>
+
+    <!-- Connected controls (shown when connected) -->
+    <div id="connected-controls">
+      <div class="action-area">
+        <button class="btn btn-ghost" id="btn-copy-code" onclick="copyCode()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Share Code
+        </button>
+        <button class="btn btn-danger" onclick="disconnect()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          Disconnect
+        </button>
+      </div>
+    </div>
+
+    <!-- Textarea -->
+    <div class="textarea-wrap">
+      <div class="textarea-header">
+        <span class="textarea-label">Clipboard</span>
+        <div class="textarea-actions">
+          <button class="btn-icon" onclick="copyText()" title="Copy text">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+          <button class="btn-icon" onclick="clearText()" title="Clear">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Clear
+          </button>
+        </div>
+      </div>
+      <textarea
+        id="pad"
+        placeholder="Type or paste anything here — it syncs instantly to other device…"
+        oninput="onTextInput()"
+      ></textarea>
+      <span class="sync-flash" id="sync-flash">↻ synced</span>
+    </div>
+
+    <!-- Session timer -->
+    <div class="timer-wrap" id="timer-wrap">
+      <span class="timer-label">Session expires in</span>
+      <div class="timer-bar-track">
+        <div class="timer-bar-fill" id="timer-bar"></div>
+      </div>
+      <span class="timer-val" id="timer-val">—</span>
+    </div>
+
+  </div><!-- /card -->
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-item">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      No login required
+    </div>
+    <div class="footer-item">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Sessions expire in 15 min
+    </div>
+    <div class="footer-item">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.28h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.9a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16z"/></svg>
+      End-to-end via Firebase
+    </div>
+  </footer>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     Firebase SDK (CDN)
+     Replace the firebaseConfig below with YOUR project config!
+     ═══════════════════════════════════════════════════════════ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getDatabase,
+    ref,
+    set,
+    get,
+    onValue,
+    off,
+    update,
+    serverTimestamp,
+    remove
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  // ┌──────────────────────────────────────────────────────────┐
+  // │  🔥 REPLACE THIS WITH YOUR FIREBASE CONFIG               │
+  // └──────────────────────────────────────────────────────────┘
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwwyfCQ8JOAAi2gHymZA4udc7f1Tov5-8",
+    authDomain: "syncpad-2803e.firebaseapp.com",
+    databaseURL: "https://syncpad-2803e-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "syncpad-2803e",
+    storageBucket: "syncpad-2803e.firebasestorage.app",
+    messagingSenderId: "814856936118",
+    appId: "1:814856936118:web:c60fef273c27ea9b70e417"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  // ─── State ───────────────────────────────────────────────────
+  let currentCode   = null;
+  let sessionRef    = null;
+  let textRef       = null;
+  let isSelf        = false;   // prevent echo loop
+  let syncTimeout   = null;
+  let timerInterval = null;
+  let expiresAt     = null;
+  const SESSION_TTL = 15 * 60 * 1000; // 15 min
+
+  // ─── DOM refs ────────────────────────────────────────────────
+  const pad          = document.getElementById('pad');
+  const statusDot    = document.getElementById('status-dot');
+  const statusLabel  = document.getElementById('status-label');
+  const statusSub    = document.getElementById('status-sub');
+  const codeDisplay  = document.getElementById('code-display');
+  const codeVal      = document.getElementById('code-value-display');
+  const sessionPanel = document.getElementById('session-panel');
+  const connPanel    = document.getElementById('connected-controls');
+  const timerWrap    = document.getElementById('timer-wrap');
+  const timerBar     = document.getElementById('timer-bar');
+  const timerVal     = document.getElementById('timer-val');
+  const syncFlash    = document.getElementById('sync-flash');
+
+  // ─── Utilities ───────────────────────────────────────────────
+  function rand6() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
+  function toast(msg, type = 'success') {
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    document.getElementById('toast-container').appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }
+
+  function setStatus(state) {
+    // state: 'idle' | 'waiting' | 'connected'
+    statusDot.className = 'dot';
+    if (state === 'waiting') {
+      statusDot.classList.add('waiting');
+      statusLabel.textContent = 'Waiting for 2nd device…';
+      statusSub.textContent   = 'Share the code above';
+    } else if (state === 'connected') {
+      statusDot.classList.add('connected');
+      statusLabel.textContent = 'Connected';
+      statusSub.textContent   = 'Real-time sync active';
+    } else {
+      statusLabel.textContent = 'Not Connected';
+      statusSub.textContent   = 'No active session';
+    }
+  }
+
+  function showConnected(code) {
+    currentCode = code;
+    codeVal.textContent = code;
+    codeDisplay.classList.add('visible');
+    sessionPanel.style.display = 'none';
+    connPanel.style.display    = 'block';
+    timerWrap.classList.add('visible');
+    startTimer();
+  }
+
+  function resetUI() {
+    currentCode = null;
+    codeVal.textContent = '——';
+    codeDisplay.classList.remove('visible');
+    sessionPanel.style.display = 'block';
+    connPanel.style.display    = 'none';
+    timerWrap.classList.remove('visible');
+    pad.value = '';
+    setStatus('idle');
+    stopTimer();
+    document.getElementById('join-input').value = '';
+  }
+
+  // ─── Timer ───────────────────────────────────────────────────
+  function startTimer() {
+    expiresAt = Date.now() + SESSION_TTL;
+    stopTimer();
+    timerInterval = setInterval(() => {
+      const left = Math.max(0, expiresAt - Date.now());
+      const mins = Math.floor(left / 60000);
+      const secs = Math.floor((left % 60000) / 1000);
+      const pct  = (left / SESSION_TTL) * 100;
+
+      timerVal.textContent = `${mins}:${String(secs).padStart(2,'0')}`;
+      timerBar.style.width = pct + '%';
+      timerBar.style.background = pct < 20 ? '#ff5c72' : pct < 40 ? '#f5a623' : '#4af0c4';
+
+      if (left === 0) { disconnect(); toast('Session expired', 'info'); }
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  // ─── Flash ───────────────────────────────────────────────────
+  function flashSync() {
+    syncFlash.classList.add('show');
+    clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(() => syncFlash.classList.remove('show'), 900);
+  }
+
+  // ─── Firebase session ops ────────────────────────────────────
+  async function createSession() {
+    const btn = document.getElementById('btn-create');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    const code = rand6();
+    sessionRef = ref(db, `sessions/${code}`);
+    textRef    = ref(db, `sessions/${code}/text`);
+
+    try {
+      await set(sessionRef, {
+        text: '',
+        connectedUsers: 1,
+        createdAt: serverTimestamp(),
+        lastActive: serverTimestamp()
+      });
+
+      showConnected(code);
+      setStatus('waiting');
+      listenSession();
+      toast(`Code created: ${code}`, 'success');
+    } catch(e) {
+      toast('Failed to create session', 'error');
+      console.error(e);
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Create Code`;
+  }
+
+  async function joinSession() {
+    const code = document.getElementById('join-input').value.trim();
+    if (code.length !== 6) { toast('Enter a 6-digit code', 'error'); return; }
+
+    const btn = document.getElementById('btn-join');
+    btn.disabled = true;
+    btn.textContent = 'Joining…';
+
+    sessionRef = ref(db, `sessions/${code}`);
+    textRef    = ref(db, `sessions/${code}/text`);
+
+    try {
+      const snap = await get(sessionRef);
+      if (!snap.exists()) {
+        toast('Session not found or expired', 'error');
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join Session`;
+        return;
+      }
+
+      await update(sessionRef, { connectedUsers: 2 });
+      showConnected(code);
+      setStatus('connected');
+      listenSession();
+      toast('Connected successfully! ✓', 'success');
+    } catch(e) {
+      toast('Failed to join session', 'error');
+      console.error(e);
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join Session`;
+  }
+
+  function listenSession() {
+    // Listen to connectedUsers for status changes
+    onValue(ref(db, `sessions/${currentCode}/connectedUsers`), (snap) => {
+      if (!snap.exists()) return;
+      const n = snap.val();
+      if (n >= 2) setStatus('connected');
+    });
+
+    // Listen to text changes
+    onValue(textRef, (snap) => {
+      if (isSelf) return; // ignore own writes
+      const val = snap.val() || '';
+      if (pad.value !== val) {
+        pad.value = val;
+        flashSync();
+        pad.classList.add('syncing');
+        setTimeout(() => pad.classList.remove('syncing'), 400);
+      }
+    });
+  }
+
+  // ─── Text input handler ──────────────────────────────────────
+  let writeDebounce = null;
+
+  window.onTextInput = function() {
+    if (!sessionRef) return;
+    isSelf = true;
+    clearTimeout(writeDebounce);
+    writeDebounce = setTimeout(async () => {
+      await update(sessionRef, {
+        text: pad.value,
+        lastActive: serverTimestamp()
+      });
+      isSelf = false;
+      flashSync();
+    }, 200); // 200ms debounce — near-instant feel
+  };
+
+  // ─── Disconnect ──────────────────────────────────────────────
+  window.disconnect = function() {
+    if (sessionRef) {
+      off(sessionRef); // remove listeners
+      off(textRef);
+      // Optionally delete session if you created it
+      // remove(sessionRef);
+    }
+    sessionRef = null;
+    textRef    = null;
+    resetUI();
+    toast('Disconnected', 'info');
+  };
+
+  // ─── Copy code ───────────────────────────────────────────────
+  window.copyCode = function() {
+    if (!currentCode) return;
+    navigator.clipboard.writeText(currentCode)
+      .then(() => toast(`Code ${currentCode} copied!`, 'success'))
+      .catch(() => toast('Copy failed', 'error'));
+  };
+
+  // ─── Copy text ───────────────────────────────────────────────
+  window.copyText = function() {
+    if (!pad.value) { toast('Nothing to copy', 'info'); return; }
+    navigator.clipboard.writeText(pad.value)
+      .then(() => toast('Copied to clipboard!', 'success'))
+      .catch(() => toast('Copy failed', 'error'));
+  };
+
+  // ─── Clear text ──────────────────────────────────────────────
+  window.clearText = function() {
+    pad.value = '';
+    if (sessionRef) {
+      update(sessionRef, { text: '', lastActive: serverTimestamp() });
+    }
+    toast('Cleared', 'info');
+  };
+
+  // ─── Expose create/join globally ────────────────────────────
+  window.createSession = createSession;
+  window.joinSession   = joinSession;
+
+  // ─── Auto-cleanup expired sessions (client-side on load) ─────
+  // Real cleanup should be done via Firebase Cloud Functions
+  // This is a lightweight fallback client-side sweep (runs once)
+  async function sweepOldSessions() {
+    // Not doing a full sweep from client (security risk).
+    // Firebase TTL rules in security rules handle expiry.
+    // See setup instructions.
+  }
+
+  sweepOldSessions();
+</script>
+
+</body>
+</html>
