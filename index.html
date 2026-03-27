@@ -550,6 +550,39 @@
       text-align: right;
     }
 
+    /* ── Timeout selector ── */
+    .timeout-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .timeout-label {
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      color: var(--text-soft);
+      white-space: nowrap;
+    }
+    .timeout-select {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .timeout-select:focus { border-color: rgba(74,240,196,0.5); }
+    .timeout-select option { background: var(--surface2); }
+
     /* ── Section visibility ── */
     #connected-controls { display: none; }
 
@@ -601,6 +634,18 @@
 
     <!-- Session setup (shown when not connected) -->
     <div id="session-panel">
+      <!-- Timeout Selector -->
+      <div class="timeout-row">
+        <span class="timeout-label">⏱ Session timeout</span>
+        <select class="timeout-select" id="timeout-select">
+          <option value="5">5 minutes</option>
+          <option value="10">10 minutes</option>
+          <option value="15" selected>15 minutes (default)</option>
+          <option value="30">30 minutes</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+        </select>
+      </div>
       <div class="action-area">
         <button class="btn btn-primary" id="btn-create" onclick="createSession()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -737,7 +782,7 @@
   let syncTimeout   = null;
   let timerInterval = null;
   let expiresAt     = null;
-  const SESSION_TTL = 15 * 60 * 1000; // 15 min
+  let SESSION_TTL = 15 * 60 * 1000; // default 15 min — updated on create
 
   // ─── DOM refs ────────────────────────────────────────────────
   const pad          = document.getElementById('pad');
@@ -841,6 +886,10 @@
     const btn = document.getElementById('btn-create');
     btn.disabled = true;
     btn.textContent = 'Creating…';
+
+    // Read selected timeout
+    const mins = parseInt(document.getElementById('timeout-select').value) || 15;
+    SESSION_TTL = mins * 60 * 1000;
 
     const code = rand6();
     sessionRef = ref(db, `sessions/${code}`);
