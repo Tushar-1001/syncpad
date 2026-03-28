@@ -550,6 +550,32 @@
       text-align: right;
     }
 
+    /* ── Word/Char counter ── */
+    .wc-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 16px;
+      margin-top: 8px;
+      padding: 0 2px;
+    }
+    .wc-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      font-family: var(--mono);
+      color: var(--text-muted);
+    }
+    .wc-num {
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .wc-limit {
+      color: var(--text-muted);
+    }
+    .wc-item.warn .wc-num { color: var(--warn); }
+    .wc-item.danger .wc-num { color: var(--danger); }
+
     /* ── Section visibility ── */
     #connected-controls { display: none; }
 
@@ -679,6 +705,19 @@
         oninput="onTextInput()"
       ></textarea>
       <span class="sync-flash" id="sync-flash">↻ synced</span>
+    </div>
+    <!-- Word / Char counter -->
+    <div class="wc-bar">
+      <div class="wc-item" id="wc-words">
+        <span>Words</span>
+        <span class="wc-num" id="word-count">0</span>
+        <span class="wc-limit">/ 100,000</span>
+      </div>
+      <div class="wc-item" id="wc-chars">
+        <span>Chars</span>
+        <span class="wc-num" id="char-count">0</span>
+        <span class="wc-limit">/ 500,000</span>
+      </div>
     </div>
 
     <!-- Session timer -->
@@ -939,6 +978,7 @@
       const val = snap.val() || '';
       if (pad.value !== val) {
         pad.value = val;
+        updateCounter(val);
         flashSync();
         pad.classList.add('syncing');
         setTimeout(() => pad.classList.remove('syncing'), 400);
@@ -958,8 +998,33 @@
   // ─── Text input handler ──────────────────────────────────────
   let writeDebounce = null;
 
+  // ── Word / Char counter ──────────────────────────────────────────
+  function updateCounter(text) {
+    const chars = text.length;
+    const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+
+    const wordEl  = document.getElementById('word-count');
+    const charEl  = document.getElementById('char-count');
+    const wcWords = document.getElementById('wc-words');
+    const wcChars = document.getElementById('wc-chars');
+
+    wordEl.textContent = words.toLocaleString();
+    charEl.textContent = chars.toLocaleString();
+
+    // Word color warning
+    wcWords.className = 'wc-item';
+    if (words > 90000) wcWords.classList.add('danger');
+    else if (words > 70000) wcWords.classList.add('warn');
+
+    // Char color warning
+    wcChars.className = 'wc-item';
+    if (chars > 450000) wcChars.classList.add('danger');
+    else if (chars > 350000) wcChars.classList.add('warn');
+  }
+
   window.onTextInput = function() {
     if (!sessionRef) return;
+    updateCounter(pad.value);
     isSelf = true;
     clearTimeout(writeDebounce);
     writeDebounce = setTimeout(async () => {
@@ -1005,6 +1070,7 @@
   // ─── Clear text ──────────────────────────────────────────────
   window.clearText = function() {
     pad.value = '';
+    updateCounter('');
     if (sessionRef) {
       update(sessionRef, { text: '', lastActive: serverTimestamp() });
     }
