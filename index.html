@@ -1091,33 +1091,158 @@
   }
 
   sweepOldSessions();
-</script>
 
-</body>
-</html>
-<script>
-  // ── Prevent disconnect when app goes to background (PWA) ──────────
-  // Keep Firebase connection alive using Page Visibility API
+  // ═══════════════════════════════════════════════════════
+  // BACKGROUND FIX — Session persistence when app minimized
+  // ═══════════════════════════════════════════════════════
+
+  // 1. Save session to localStorage so it survives background
+  function saveSessionToStorage(code, role) {
+    localStorage.setItem('syncpad_code', code);
+    localStorage.setItem('syncpad_role', role); // 'creator' or 'joiner'
+    localStorage.setItem('syncpad_time', Date.now());
+  }
+
+  function clearSessionStorage() {
+    localStorage.removeItem('syncpad_code');
+    localStorage.removeItem('syncpad_role');
+    localStorage.removeItem('syncpad_time');
+  }
+
+  // 2. Reconnect function — re-attach all Firebase listeners
+  function reconnectSession(code) {
+    sessionRef = ref(db, `sessions/${code}`);
+    textRef    = ref(db, `sessions/${code}/text`);
+    isSelf     = false;
+
+    // Re-listen to text
+    onValue(textRef, (snap) => {
+      if (isSelf) return;
+      const val = snap.val() || '';
+      if (pad.value !== val) {
+        pad.value = val;
+        updateCounter(val);
+        flashSync();
+        pad.classList.add('syncing');
+        setTimeout(() => pad.classList.remove('syncing'), 400);
+      }
+    });
+
+    // Re-listen to users
+    onValue(ref(db, `sessions/${code}/connectedUsers`), (snap) => {
+      if (!snap.exists()) return;
+      if (snap.val() >= 2) setStatus('connected');
+    });
+  }
+
+  // 3. Page Visibility API — runs when app comes back to foreground
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      // App came back to foreground — re-check connection
-      if (currentCode && sessionRef) {
-        // Firebase auto-reconnects, just refresh the listener
-        import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js").then(({ onValue, ref, getDatabase }) => {
-          // Firebase handles reconnection automatically
-          // Just reset isSelf flag to ensure sync works
-          isSelf = false;
-        });
+      if (!currentCode) {
+        // Check if session was saved in localStorage
+        const savedCode = localStorage.getItem('syncpad_code');
+        const savedTime = localStorage.getItem('syncpad_time');
+        if (savedCode && savedTime) {
+          const elapsed = Date.now() - parseInt(savedTime);
+          if (elapsed < SESSION_TTL) {
+            // Session still valid — reconnect!
+            currentCode = savedCode;
+            reconnectSession(savedCode);
+            showConnected(savedCode);
+            setStatus('connected');
+            toast('Reconnected! ✓', 'success');
+          } else {
+            // Session expired
+            clearSessionStorage();
+          }
+        }
+      } else {
+        // Already have code — just reset isSelf and reconnect listeners
+        isSelf = false;
+        reconnectSession(currentCode);
       }
     }
   });
 
-  // Keep alive ping every 30s to prevent Firebase from dropping connection
+  // 4. Online event — reconnect when internet comes back
+  window.addEventListener('online', () => {
+    if (currentCode) {
+      isSelf = false;
+      reconnectSession(currentCode);
+      toast('Back online! ✓', 'success');
+    }
+  });
+
+  window.addEventListener('offline', () => {
+    toast('You are offline...', 'error');
+  });
+
+  // 5. Firebase connection state monitor
+  const connectedRef = ref(db, '.info/connected');
+  onValue(connectedRef, (snap) => {
+    if (snap.val() === true) {
+      if (currentCode) {
+        // Firebase reconnected — reset isSelf so sync works
+        isSelf = false;
+      }
+    } else {
+      // Firebase disconnected
+      if (currentCode) {
+        toast('Connection lost, reconnecting...', 'info');
+      }
+    }
+  });
+
+  // 6. Patch createSession and joinSession to save to localStorage
+  const _origCreate = window.createSession;
+  window.createSession = async function() {
+    await _origCreate();
+    if (currentCode) saveSessionToStorage(currentCode, 'creator');
+  };
+
+  const _origJoin = window.joinSession;
+  window.joinSession = async function() {
+    await _origJoin();
+    if (currentCode) saveSessionToStorage(currentCode, 'joiner');
+  };
+
+  // 7. Clear storage on disconnect
+  const _origDisconnect = window.disconnect;
+  window.disconnect = function() {
+    clearSessionStorage();
+    _origDisconnect();
+  };
+
+  // 8. Keep-alive ping every 25 seconds
   setInterval(() => {
     if (currentCode && sessionRef) {
-      isSelf = false; // ensure we don't block incoming updates
+      isSelf = false; // prevent blocking incoming updates
+      update(sessionRef, { lastActive: serverTimestamp() }).catch(() => {});
     }
-  }, 30000);
+  }, 25000);
+
+  // 9. On page load — check if session exists in localStorage (page refresh case)
+  (function checkStoredSession() {
+    const savedCode = localStorage.getItem('syncpad_code');
+    const savedTime = localStorage.getItem('syncpad_time');
+    if (!savedCode || !savedTime) return;
+    const elapsed = Date.now() - parseInt(savedTime);
+    if (elapsed >= SESSION_TTL) { clearSessionStorage(); return; }
+    // Auto-rejoin
+    get(ref(db, `sessions/${savedCode}`)).then(snap => {
+      if (snap.exists()) {
+        currentCode = savedCode;
+        reconnectSession(savedCode);
+        showConnected(savedCode);
+        setStatus('connected');
+        toast('Session restored! ✓', 'success');
+      } else {
+        clearSessionStorage();
+      }
+    }).catch(() => clearSessionStorage());
+  })();
+
+  sweepOldSessions();
 </script>
 
 <script>
@@ -1130,3 +1255,6 @@
     });
   }
 </script>
+
+</body>
+</html>
